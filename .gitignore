@@ -1,0 +1,20 @@
+# Large generated data files
+ml/X_r1.npy
+ml/X_r2.npy
+ml/X_r3.npy
+ml/y.npy
+ml/ddi_pairs.csv
+ml/ddi_with_smiles.csv
+
+# Raw DrugBank data (licensed, too large)
+backend/data/full database.xml
+backend/data/structures.sdf
+backend/data/drugbank vocabulary.csv
+
+# Models (large, regenerable)
+ml/models/
+
+# Python
+venv/
+__pycache__/
+*.pyc
