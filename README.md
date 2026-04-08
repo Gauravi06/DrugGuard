@@ -102,11 +102,4 @@ python train.py             # Step 4: Train and evaluate models
 
 ---
 
-## Limitations & Future Work
-
-- Negative samples are **assumed** (randomly paired drugs), not experimentally confirmed non-interactions
-- Only molecular structure is used — adding target protein, metabolism, or pathway data could significantly improve accuracy
-- A **Streamlit web app** for interactive prediction is planned as the next phase
-
----
 
