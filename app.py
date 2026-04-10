@@ -388,7 +388,7 @@ if st.button("Check Interaction", type="primary", use_container_width=True):
 
                 st.markdown(
                     '<p class="disclaimer">This is a computational prediction only. '
-                    'Always consult a healthcare professional before combining medications.</p>',
+                    'It is always recommended to consult a healthcare professional before combining medications.</p>',
                     unsafe_allow_html=True
                 )
 
