@@ -14,10 +14,17 @@ backend/data/drugbank vocabulary.csv
 # Models (large, regenerable)
 ml/models/
 
+# Cache files
+drug_data_cache.pkl
+ml/gemini_cache.json
+ml/groq_cache.json
+ml/ddi_descriptions_cache.csv
+ml/drug_smiles_cache.csv
+
 # Python
 venv/
 __pycache__/
 *.pyc
 
+# Environment
 .env
-ml/ddi_descriptions_cache.csv

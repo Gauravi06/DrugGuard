@@ -7,6 +7,7 @@ import joblib
 import pandas as pd
 import os
 import pickle
+import json
 from rdkit import Chem, RDLogger
 from rdkit.Chem import AllChem
 
@@ -47,21 +48,73 @@ st.markdown("""
         text-align: center;
         margin-top: 1rem;
     }
-    .explanation-box {
-        background-color: #1e1e1e;
-        border-left: 3px solid #F09595;
-        border-radius: 6px;
-        padding: 1rem 1.2rem;
+    .info-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
         margin-top: 1rem;
+    }
+    .info-card {
+        background-color: #1a1a2e;
+        border: 1px solid #2a2a4a;
+        border-radius: 10px;
+        padding: 1rem 1.2rem;
+    }
+    .info-card-full {
+        background-color: #1a1a2e;
+        border: 1px solid #2a2a4a;
+        border-radius: 10px;
+        padding: 1rem 1.2rem;
+        margin-top: 12px;
+    }
+    .info-card-label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #888;
+        margin-bottom: 6px;
+    }
+    .info-card-value {
         font-size: 0.92rem;
-        color: #ddd;
-        line-height: 1.6;
+        color: #e0e0e0;
+        line-height: 1.5;
+    }
+    .drug-pill {
+        display: inline-block;
+        background-color: #2a2a4a;
+        color: #a0a0ff;
+        border-radius: 20px;
+        padding: 2px 10px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-bottom: 6px;
+    }
+    .warning-pill {
+        display: inline-block;
+        background-color: #3a1a1a;
+        color: #ff9999;
+        border-radius: 20px;
+        padding: 2px 10px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-bottom: 6px;
+    }
+    .safe-pill {
+        display: inline-block;
+        background-color: #1a3a1a;
+        color: #99ff99;
+        border-radius: 20px;
+        padding: 2px 10px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-bottom: 6px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-
 CACHE_FILE = "drug_data_cache.pkl"
+GROQ_CACHE_FILE = "ml/groq_cache.json"
 
 
 @st.cache_resource(show_spinner="Loading model...")
@@ -71,12 +124,10 @@ def load_model():
 
 @st.cache_resource(show_spinner="Loading drug database...")
 def load_drug_data():
-    # Use disk cache if available — makes restarts near-instant
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "rb") as f:
             return pickle.load(f)
 
-    # First-time only: parse the large SDF file (~1 min)
     sdf_path = os.path.join("backend", "data", "structures.sdf")
     voc_path = os.path.join("backend", "data", "drugbank vocabulary.csv")
 
@@ -119,26 +170,25 @@ def load_drug_data():
 
     result = smiles_map, name_to_id, sorted(set(available))
 
-    # Save to disk so next restart is instant
     with open(CACHE_FILE, "wb") as f:
         pickle.dump(result, f)
 
     return result
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def load_ddi_descriptions():
-    ddi_path = os.path.join("ml", "ddi_with_smiles.csv")
+    ddi_path = os.path.join("ml", "ddi_descriptions_cache.csv")
     if not os.path.exists(ddi_path):
         return {}
     try:
-        df = pd.read_csv(ddi_path, usecols=["drug1_id", "drug2_id", "description"])
+        df = pd.read_csv(ddi_path)
         desc_map = {}
         for _, row in df.iterrows():
-            key = (row["drug1_id"], row["drug2_id"])
+            key  = (row["drug1_id"], row["drug2_id"])
             rkey = (row["drug2_id"], row["drug1_id"])
             if pd.notna(row.get("description")):
-                desc_map[key] = row["description"]
+                desc_map[key]  = row["description"]
                 desc_map[rkey] = row["description"]
         return desc_map
     except Exception:
@@ -162,47 +212,119 @@ def severity_label(prob):
         return "Low"
 
 
-@st.cache_data(show_spinner=False)
 def get_ai_explanation(drug1, drug2):
+    key = f"{drug1.lower()}|{drug2.lower()}"
+
+    if os.path.exists(GROQ_CACHE_FILE):
+        with open(GROQ_CACHE_FILE, "r") as f:
+            cache = json.load(f)
+        if key in cache:
+            return cache[key]
+    else:
+        cache = {}
+
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        import requests as req
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            return None
+
+        url = "https://api.groq.com/openai/v1/chat/completions"
         prompt = (
-            f"In 3-4 sentences, briefly explain: "
-            f"(1) what {drug1} is typically used for, "
-            f"(2) what {drug2} is typically used for, "
-            f"(3) why and how combining these two drugs may cause a harmful interaction. "
-            f"Be concise, medically accurate, and accessible to a general audience. "
-            f"Write as plain flowing text with no bullet points or headers."
+            f"Explain this drug pair in exactly this JSON format with no extra text:\n"
+            f"{{\n"
+            f'  "drug1_class": "drug class of {drug1}",\n'
+            f'  "drug1_use": "what {drug1} is typically used for (one short sentence)",\n'
+            f'  "drug2_class": "drug class of {drug2}",\n'
+            f'  "drug2_use": "what {drug2} is typically used for (one short sentence)",\n'
+            f'  "interaction_effect": "what harmful effect combining them causes (one short sentence)",\n'
+            f'  "interaction_reason": "why this happens mechanistically (one short sentence)"\n'
+            f"}}\n"
+            f"Be medically accurate. Return only valid JSON, nothing else."
         )
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except ImportError:
-        return None
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2
+        }
+        response = req.post(url, json=payload, headers=headers, timeout=15)
+        resp_json = response.json()
+
+        if "choices" not in resp_json:
+            return None
+
+        raw = resp_json["choices"][0]["message"]["content"].strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(raw)
+
+        cache[key] = parsed
+        with open(GROQ_CACHE_FILE, "w") as f:
+            json.dump(cache, f, indent=2)
+
+        return parsed
+
     except Exception:
         return None
 
 
-# ── Header ─────────────────────────────────────────────────────────────────────
+def render_explanation(drug1, drug2, data, interaction):
+    if isinstance(data, str):
+        st.markdown(f'<div class="info-card-full"><div class="info-card-value">{data}</div></div>', unsafe_allow_html=True)
+        return
+
+    if not isinstance(data, dict):
+        return
+
+    pill1 = "warning-pill" if interaction else "safe-pill"
+    pill2 = "warning-pill" if interaction else "safe-pill"
+
+    st.markdown(f"""
+    <div class="info-grid">
+        <div class="info-card">
+            <div class="info-card-label">💊 {drug1}</div>
+            <div class="drug-pill">{data.get('drug1_class', 'Unknown class')}</div>
+            <div class="info-card-value">{data.get('drug1_use', '')}</div>
+        </div>
+        <div class="info-card">
+            <div class="info-card-label">💊 {drug2}</div>
+            <div class="drug-pill">{data.get('drug2_class', 'Unknown class')}</div>
+            <div class="info-card-value">{data.get('drug2_use', '')}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if interaction:
+        st.markdown(f"""
+        <div class="info-card-full">
+            <div class="info-card-label">⚠️ What happens when combined</div>
+            <div class="{'warning-pill'}">Effect</div>
+            <div class="info-card-value">{data.get('interaction_effect', '')}</div>
+            <br/>
+            <div class="{'warning-pill'}">Why</div>
+            <div class="info-card-value">{data.get('interaction_reason', '')}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+
 st.title("💊 DrugGuard")
 st.markdown("#### Drug-Drug Interaction Predictor")
 st.markdown("Select two drugs below to check whether combining them may cause a harmful interaction.")
 st.divider()
 
-# ── Load resources ─────────────────────────────────────────────────────────────
 model = load_model()
 smiles_map, name_to_id, available_drugs = load_drug_data()
 ddi_descriptions = load_ddi_descriptions()
 
-# ── Drug selection ─────────────────────────────────────────────────────────────
 col1, col2 = st.columns(2)
 with col1:
     drug1 = st.selectbox("First drug", options=["Select a drug..."] + available_drugs)
 with col2:
     drug2 = st.selectbox("Second drug", options=["Select a drug..."] + available_drugs)
 
-# ── Predict ────────────────────────────────────────────────────────────────────
 if st.button("Check Interaction", type="primary", use_container_width=True):
     if drug1 == "Select a drug..." or drug2 == "Select a drug...":
         st.warning("Please select both drugs.")
@@ -237,24 +359,17 @@ if st.button("Check Interaction", type="primary", use_container_width=True):
                     </div>
                     """, unsafe_allow_html=True)
 
-                    db_desc = ddi_descriptions.get((id1, id2))
-                    if db_desc:
-                        explanation = db_desc
-                    else:
-                        with st.spinner("Looking up interaction details..."):
+                    with st.spinner("Looking up details..."):
+                        db_desc = ddi_descriptions.get((id1, id2))
+                        if db_desc:
+                            explanation = db_desc
+                        else:
                             explanation = get_ai_explanation(drug1, drug2)
 
                     if explanation:
-                        st.markdown(
-                            f'<div class="explanation-box">{explanation}</div>',
-                            unsafe_allow_html=True
-                        )
+                        render_explanation(drug1, drug2, explanation, interaction=True)
                     else:
-                        st.markdown(
-                            '<div class="explanation-box">No specific description available for this pair. '
-                            'The model has predicted a likely interaction based on molecular structure patterns.</div>',
-                            unsafe_allow_html=True
-                        )
+                        st.markdown('<div class="info-card-full"><div class="info-card-value">No specific description available. The model predicted a likely interaction based on molecular structure patterns.</div></div>', unsafe_allow_html=True)
 
                 else:
                     st.markdown(f"""
@@ -265,13 +380,18 @@ if st.button("Check Interaction", type="primary", use_container_width=True):
                     </div>
                     """, unsafe_allow_html=True)
 
+                    with st.spinner("Looking up drug details..."):
+                        explanation = get_ai_explanation(drug1, drug2)
+
+                    if explanation:
+                        render_explanation(drug1, drug2, explanation, interaction=False)
+
                 st.markdown(
-                    '<p class="disclaimer">⚕️ This is a computational prediction only. '
+                    '<p class="disclaimer">This is a computational prediction only. '
                     'Always consult a healthcare professional before combining medications.</p>',
                     unsafe_allow_html=True
                 )
 
-# ── About ──────────────────────────────────────────────────────────────────────
 st.divider()
 
 with st.expander("About DrugGuard"):
@@ -291,3 +411,4 @@ with st.expander("About DrugGuard"):
     }))
 
     st.markdown("**Dataset:** DrugBank 6.0 (academic license) — 1.4M known drug interactions")
+
