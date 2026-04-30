@@ -60,15 +60,40 @@ ROC-AUC of **0.78 using only molecular structure** (no pathway, target, or pharm
 
 ```
 DrugGuard/
-├── extract_ddi.py      # Parse DrugBank XML → DDI pairs
-├── preprocess.py       # Merge SMILES from SDF file
-├── features.py         # Generate Morgan fingerprints
-├── train.py            # Train & evaluate XGBoost models
-├── data/               # (not tracked) Raw DrugBank files
-├── X_r1.npy            # Feature matrix at radius 1
-├── X_r2.npy            # Feature matrix at radius 2
-├── X_r3.npy            # Feature matrix at radius 3
-└── README.md
+├── app.py                          # Streamlit web UI
+├── drug_data_cache.pkl             # Cached drug data for fast lookup
+├── .env                            # API keys (not tracked)
+├── .gitignore
+├── README.md
+├── DrugGuard_Final_Report.docx
+├── backend/
+│   ├── data/                       # (not tracked) Raw DrugBank files
+│   │   ├── full database.xml
+│   │   ├── structures.sdf
+│   │   └── drugbank vocabulary.csv
+│   ├── main.py
+│   ├── model.py
+│   └── requirements.txt
+└── ml/
+    ├── models/                     # (generated) Trained XGBoost models
+    │   ├── model_r1.pkl
+    │   ├── model_r2.pkl
+    │   └── model_r3.pkl
+    ├── extract_ddi.py              # Parse DrugBank XML → DDI pairs
+    ├── preprocess.py               # Merge SMILES from SDF file
+    ├── cache_smiles.py             # Build drug name → SMILES lookup
+    ├── cache_descriptions.py       # Pre-cache interaction descriptions
+    ├── features.py                 # Generate Morgan fingerprints
+    ├── train.py                    # Train & evaluate XGBoost models
+    ├── drug_smiles_cache.csv       # Tracked: drug names + SMILES
+    ├── ddi_pairs.csv               # (generated) Extracted DDI pairs
+    ├── ddi_with_smiles.csv         # (generated) DDI pairs + SMILES
+    ├── ddi_descriptions_cache.csv  # (generated) Cached DDI descriptions
+    ├── groq_cache.json             # (generated) Cached LLM responses
+    ├── X_r1.npy                    # (generated) Feature matrix, radius 1
+    ├── X_r2.npy                    # (generated) Feature matrix, radius 2
+    ├── X_r3.npy                    # (generated) Feature matrix, radius 3
+    └── y.npy                       # (generated) Labels
 ```
 
 ---
